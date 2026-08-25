@@ -10,6 +10,7 @@ const RELEASE = 0.35;
 
 const instrument = document.querySelector<HTMLElement>("#instrument");
 const hint = document.querySelector<HTMLElement>("#hint");
+const pitchDisplay = document.querySelector<HTMLElement>("#pitch-display");
 const pads = Array.from(document.querySelectorAll<HTMLButtonElement>(".pad"));
 
 let audioContext: AudioContext | null = null;
@@ -84,11 +85,13 @@ function noteOn(voiceId: string, frequency: number, pad: HTMLElement | null) {
   voices.set(voiceId, { oscillator, gain });
   pad?.classList.add("active");
   markPlayed();
+  updatePitchDisplay();
 }
 
 function noteOff(voiceId: string, pad: HTMLElement | null) {
   const voice = voices.get(voiceId);
   pad?.classList.remove("active");
+  updatePitchDisplay();
   if (!voice || !audioContext) return;
 
   const { oscillator, gain } = voice;
@@ -102,6 +105,19 @@ function noteOff(voiceId: string, pad: HTMLElement | null) {
 
 function frequencyOf(pad: HTMLElement): number {
   return Number(pad.dataset.freq);
+}
+
+// Shows every pitch currently sounding, low to high — a sighted readout of
+// what's already audible, not a new source of truth.
+function updatePitchDisplay() {
+  if (!pitchDisplay) return;
+  const sounding = pads
+    .filter((pad) => pad.classList.contains("active"))
+    .map((pad) => ({ note: pad.dataset.note ?? "?", freq: frequencyOf(pad) }))
+    .sort((a, b) => a.freq - b.freq);
+
+  pitchDisplay.textContent =
+    sounding.length === 0 ? "—" : sounding.map(({ note, freq }) => `${note} · ${freq.toFixed(1)} Hz`).join("   ");
 }
 
 function updateBrightnessFromClientY(clientY: number) {
@@ -327,6 +343,7 @@ function releaseAllVoices() {
   }
   pointerPads.clear();
   for (const pad of pads) pad.classList.remove("active");
+  updatePitchDisplay();
 }
 
 window.addEventListener("blur", releaseAllVoices);

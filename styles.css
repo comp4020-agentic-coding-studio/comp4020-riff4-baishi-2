@@ -54,6 +54,15 @@ h1 {
   font-size: 0.95rem;
 }
 
+.pitch-display {
+  min-height: 1.6em;
+  margin: 0 0 1rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.1rem;
+  letter-spacing: 0.03em;
+  opacity: 0.9;
+}
+
 .autoplay {
   appearance: none;
   border: 1px solid rgb(255 255 255 / 0.25);
