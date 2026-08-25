@@ -142,6 +142,94 @@ h1 {
   }
 }
 
+.loop-control {
+  margin-top: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+#loop-button {
+  appearance: none;
+  border: 1px solid rgb(255 255 255 / 0.25);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.08);
+  color: inherit;
+  font: inherit;
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background 0.15s ease-out, border-color 0.15s ease-out;
+}
+
+#loop-button:hover {
+  background: rgb(255 255 255 / 0.15);
+}
+
+.loop-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.4);
+  transition: background 0.15s ease-out;
+}
+
+#loop-button[data-state="recording"] {
+  border-color: hsl(0 80% 65%);
+}
+
+#loop-button[data-state="recording"] .loop-dot {
+  background: hsl(0 80% 65%);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+#loop-button[data-state="playing"] {
+  border-color: hsl(140 70% 60%);
+}
+
+#loop-button[data-state="playing"] .loop-dot {
+  background: hsl(140 70% 60%);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #loop-button[data-state="recording"] .loop-dot {
+    animation: none;
+  }
+}
+
+.pad.loop-echo {
+  outline: 0.2rem solid hsl(140 70% 60% / 0.85);
+  outline-offset: 0.2rem;
+}
+
+@media (forced-colors: active) {
+  .pad.loop-echo {
+    outline-color: LinkText;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pad {
     animation: none;

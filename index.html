@@ -59,6 +59,14 @@
       <p class="note">
         Slide across pads to bend between notes. Move up and down to brighten or darken the sound.
       </p>
+      <div class="loop-control">
+        <button type="button" id="loop-button" aria-pressed="false">
+          <span class="loop-dot" aria-hidden="true"></span>
+          <span id="loop-label">Record a loop</span>
+        </button>
+        <span class="keycap" aria-hidden="true">L</span>
+      </div>
+      <p id="loop-status" class="visually-hidden" role="status"></p>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>
