@@ -204,6 +204,84 @@ for (const pad of pads) {
   if (key) keyPads.set(key, pad);
 }
 
+// A melody that only ever touches the eight pads, so it can never play a
+// note the instrument itself couldn't — the pentatonic scale means any order
+// of these keys stays consonant.
+const MELODY: { key: string; duration: number }[] = [
+  { key: "a", duration: 320 },
+  { key: "d", duration: 320 },
+  { key: "g", duration: 320 },
+  { key: "j", duration: 480 },
+  { key: "g", duration: 320 },
+  { key: "d", duration: 320 },
+  { key: "a", duration: 480 },
+  { key: "f", duration: 320 },
+  { key: "h", duration: 320 },
+  { key: "k", duration: 480 },
+  { key: "h", duration: 320 },
+  { key: "f", duration: 320 },
+  { key: "d", duration: 320 },
+  { key: "g", duration: 320 },
+  { key: "a", duration: 640 },
+];
+
+const autoplayButton = document.querySelector<HTMLButtonElement>("#autoplay");
+let melodyPlaying = false;
+let melodyTimeout: number | null = null;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    melodyTimeout = window.setTimeout(resolve, ms);
+  });
+}
+
+function setAutoplayLabel(playing: boolean) {
+  if (!autoplayButton) return;
+  autoplayButton.setAttribute("aria-pressed", String(playing));
+  autoplayButton.textContent = playing ? "Stop melody" : "Play melody";
+}
+
+function stopMelody() {
+  melodyPlaying = false;
+  if (melodyTimeout !== null) {
+    window.clearTimeout(melodyTimeout);
+    melodyTimeout = null;
+  }
+  for (const voiceId of Array.from(voices.keys())) {
+    if (voiceId.startsWith("melody-")) noteOff(voiceId, keyPads.get(voiceId.slice(7)) ?? null);
+  }
+  setAutoplayLabel(false);
+}
+
+async function playMelody() {
+  melodyPlaying = true;
+  setAutoplayLabel(true);
+  ensureAudio();
+
+  for (const { key, duration } of MELODY) {
+    if (!melodyPlaying) return;
+    const pad = keyPads.get(key);
+    if (!pad) continue;
+    const voiceId = `melody-${key}`;
+    noteOn(voiceId, frequencyOf(pad), pad);
+    await sleep(duration * 0.85);
+    if (!melodyPlaying) return;
+    noteOff(voiceId, pad);
+    await sleep(duration * 0.15);
+  }
+
+  melodyPlaying = false;
+  setAutoplayLabel(false);
+}
+
+autoplayButton?.addEventListener("click", () => {
+  if (melodyPlaying) {
+    stopMelody();
+  } else {
+    void playMelody();
+  }
+});
+
 const BRIGHTNESS_STEP = 0.08;
 
 document.addEventListener("keydown", (event) => {
@@ -238,6 +316,12 @@ document.addEventListener("keyup", (event) => {
 // forever, since keyup/pointerup only fire on the page that's still focused.
 // Releasing every voice on blur turns that into an ordinary note-off.
 function releaseAllVoices() {
+  melodyPlaying = false;
+  if (melodyTimeout !== null) {
+    window.clearTimeout(melodyTimeout);
+    melodyTimeout = null;
+  }
+  setAutoplayLabel(false);
   for (const voiceId of Array.from(voices.keys())) {
     noteOff(voiceId, null);
   }

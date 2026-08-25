@@ -54,6 +54,32 @@ h1 {
   font-size: 0.95rem;
 }
 
+.autoplay {
+  appearance: none;
+  border: 1px solid rgb(255 255 255 / 0.25);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.08);
+  color: #f2f0ff;
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.5rem 1.5rem;
+  cursor: pointer;
+  transition:
+    background 0.15s ease-out,
+    border-color 0.15s ease-out;
+}
+
+.autoplay:hover,
+.autoplay:focus-visible {
+  background: rgb(255 255 255 / 0.16);
+  border-color: rgb(255 255 255 / 0.4);
+}
+
+.autoplay[aria-pressed="true"] {
+  background: hsl(calc(var(--bg-hue) + 60) 90% 55% / 0.35);
+  border-color: hsl(calc(var(--bg-hue) + 60) 90% 65%);
+}
+
 .instrument {
   container-type: inline-size;
   touch-action: none;
