@@ -178,22 +178,22 @@ function updateBrightnessFromClientY(clientY: number) {
 type PointerDrag = { pad: HTMLElement; startX: number; startY: number };
 const pointerPads = new Map<number, PointerDrag>();
 
-const STRETCH_RANGE = 90; // px of drag needed to reach full stretch
-const STRETCH_MAX = 0.55; // extra scale, at full stretch, along the drag axis
+const STRETCH_RANGE = 90; // px of drag needed to reach full lean
+const STRETCH_MAX = 22; // percentage points the edge leans, at full drag
 
-// A pad reaches toward wherever it's being dragged, smoothly, via the same
-// transition that already handles its lift and glow — so the shape itself
-// tells you which way the gesture is bending the sound.
+// A pad leans toward wherever it's being dragged — only its edges reshape
+// (via border-radius), the overall size stays put — smoothed by the same
+// transition that already handles its lift and glow.
 function applyStretch(pad: HTMLElement, dx: number, dy: number) {
-  const stretchX = 1 + Math.min(Math.abs(dx) / STRETCH_RANGE, 1) * STRETCH_MAX;
-  const stretchY = 1 + Math.min(Math.abs(dy) / STRETCH_RANGE, 1) * STRETCH_MAX;
-  pad.style.setProperty("--stretch-x", stretchX.toFixed(3));
-  pad.style.setProperty("--stretch-y", stretchY.toFixed(3));
+  const leanX = (Math.max(-1, Math.min(1, dx / STRETCH_RANGE)) * STRETCH_MAX).toFixed(1);
+  const leanY = (Math.max(-1, Math.min(1, dy / STRETCH_RANGE)) * STRETCH_MAX).toFixed(1);
+  pad.style.borderRadius =
+    `calc(50% - ${leanX}%) calc(50% + ${leanX}%) calc(50% + ${leanX}%) calc(50% - ${leanX}%) / ` +
+    `calc(50% - ${leanY}%) calc(50% - ${leanY}%) calc(50% + ${leanY}%) calc(50% + ${leanY}%)`;
 }
 
 function resetStretch(pad: HTMLElement) {
-  pad.style.setProperty("--stretch-x", "1");
-  pad.style.setProperty("--stretch-y", "1");
+  pad.style.borderRadius = "";
 }
 
 function padUnderPoint(x: number, y: number): HTMLElement | null {
