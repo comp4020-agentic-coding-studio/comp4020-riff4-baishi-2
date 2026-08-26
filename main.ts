@@ -1,7 +1,8 @@
 // Drift: an eight-pad pentatonic instrument. Every note lives in the same
 // scale, so any combination of pads — one finger or five — sounds
 // consonant. Vertical position sweeps a shared filter and delay, so the
-// same notes feel brighter or darker depending on where you touch.
+// same notes feel brighter or darker depending on where you touch — and
+// bends every sounding pitch slightly sharp or flat along with it.
 
 const MIN_CUTOFF = 350;
 const MAX_CUTOFF = 6000;
@@ -28,6 +29,23 @@ for (const pad of pads) {
 }
 
 const HUE_BEND_RANGE = 40; // degrees of hue swing across the full up/down travel
+const PITCH_BEND_CENTS_RANGE = 200; // a full tone of bend across the full up/down travel
+
+function currentBendCents(): number {
+  return (brightness - 0.5) * PITCH_BEND_CENTS_RANGE;
+}
+
+// Every currently sounding oscillator bends by the same amount, live, as you
+// move up or down — the same gesture that already brightens the filter and
+// bends each pad's hue, so pitch, timbre and colour all drift together.
+function applyPitchBendForBrightness() {
+  if (!audioContext) return;
+  const cents = currentBendCents();
+  const now = audioContext.currentTime;
+  for (const { oscillator } of voices.values()) {
+    oscillator.detune.setTargetAtTime(cents, now, 0.05);
+  }
+}
 
 // A held pad's colour bends away from its resting hue as you move up or
 // down, the same gesture that already brightens or darkens the sound —
@@ -53,6 +71,8 @@ function setBrightness(value: number) {
     masterFilter.frequency.setTargetAtTime(cutoff, audioContext.currentTime, 0.05);
   }
   applyHueForBrightness();
+  applyPitchBendForBrightness();
+  updatePitchDisplay();
 }
 
 function ensureAudio(): AudioContext {
@@ -95,6 +115,7 @@ function noteOn(voiceId: string, frequency: number, pad: HTMLElement | null) {
   const oscillator = context.createOscillator();
   oscillator.type = "triangle";
   oscillator.frequency.value = frequency;
+  oscillator.detune.setValueAtTime(currentBendCents(), context.currentTime);
 
   const gain = context.createGain();
   gain.gain.setValueAtTime(0, context.currentTime);
@@ -132,12 +153,14 @@ function frequencyOf(pad: HTMLElement): number {
 }
 
 // Shows every pitch currently sounding, low to high — a sighted readout of
-// what's already audible, not a new source of truth.
+// what's already audible, including the live bend from the brightness
+// gesture, not a new source of truth.
 function updatePitchDisplay() {
   if (!pitchDisplay) return;
+  const bendFactor = 2 ** (currentBendCents() / 1200);
   const sounding = pads
     .filter((pad) => pad.classList.contains("active"))
-    .map((pad) => ({ note: pad.dataset.note ?? "?", freq: frequencyOf(pad) }))
+    .map((pad) => ({ note: pad.dataset.note ?? "?", freq: frequencyOf(pad) * bendFactor }))
     .sort((a, b) => a.freq - b.freq);
 
   pitchDisplay.textContent =
