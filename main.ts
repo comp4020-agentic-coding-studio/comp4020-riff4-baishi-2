@@ -175,7 +175,26 @@ function updateBrightnessFromClientY(clientY: number) {
 // Pointer events unify mouse and touch, and each pointerId is its own
 // voice, so a mouse drag glides between pads (glissando) while several
 // simultaneous touches play a chord.
-const pointerPads = new Map<number, HTMLElement>();
+type PointerDrag = { pad: HTMLElement; startX: number; startY: number };
+const pointerPads = new Map<number, PointerDrag>();
+
+const STRETCH_RANGE = 90; // px of drag needed to reach full stretch
+const STRETCH_MAX = 0.55; // extra scale, at full stretch, along the drag axis
+
+// A pad reaches toward wherever it's being dragged, smoothly, via the same
+// transition that already handles its lift and glow — so the shape itself
+// tells you which way the gesture is bending the sound.
+function applyStretch(pad: HTMLElement, dx: number, dy: number) {
+  const stretchX = 1 + Math.min(Math.abs(dx) / STRETCH_RANGE, 1) * STRETCH_MAX;
+  const stretchY = 1 + Math.min(Math.abs(dy) / STRETCH_RANGE, 1) * STRETCH_MAX;
+  pad.style.setProperty("--stretch-x", stretchX.toFixed(3));
+  pad.style.setProperty("--stretch-y", stretchY.toFixed(3));
+}
+
+function resetStretch(pad: HTMLElement) {
+  pad.style.setProperty("--stretch-x", "1");
+  pad.style.setProperty("--stretch-y", "1");
+}
 
 function padUnderPoint(x: number, y: number): HTMLElement | null {
   const el = document.elementFromPoint(x, y);
@@ -186,7 +205,7 @@ instrument?.addEventListener("pointerdown", (event) => {
   const pad = (event.target as HTMLElement).closest<HTMLElement>(".pad");
   if (!pad) return;
   event.preventDefault();
-  pointerPads.set(event.pointerId, pad);
+  pointerPads.set(event.pointerId, { pad, startX: event.clientX, startY: event.clientY });
   noteOn(`pointer-${event.pointerId}`, frequencyOf(pad), pad);
   updateBrightnessFromClientY(event.clientY);
 });
@@ -194,21 +213,27 @@ instrument?.addEventListener("pointerdown", (event) => {
 document.addEventListener("pointermove", (event) => {
   updateBrightnessFromClientY(event.clientY);
 
-  const currentPad = pointerPads.get(event.pointerId);
-  if (!currentPad) return;
+  const drag = pointerPads.get(event.pointerId);
+  if (!drag) return;
 
   const pad = padUnderPoint(event.clientX, event.clientY);
-  if (pad && pad !== currentPad) {
-    noteOff(`pointer-${event.pointerId}`, currentPad);
-    pointerPads.set(event.pointerId, pad);
+  if (pad && pad !== drag.pad) {
+    noteOff(`pointer-${event.pointerId}`, drag.pad);
+    resetStretch(drag.pad);
+    drag.pad = pad;
+    drag.startX = event.clientX;
+    drag.startY = event.clientY;
     noteOn(`pointer-${event.pointerId}`, frequencyOf(pad), pad);
   }
+
+  applyStretch(drag.pad, event.clientX - drag.startX, event.clientY - drag.startY);
 });
 
 function releasePointer(event: PointerEvent) {
-  const pad = pointerPads.get(event.pointerId);
-  if (!pad) return;
-  noteOff(`pointer-${event.pointerId}`, pad);
+  const drag = pointerPads.get(event.pointerId);
+  if (!drag) return;
+  noteOff(`pointer-${event.pointerId}`, drag.pad);
+  resetStretch(drag.pad);
   pointerPads.delete(event.pointerId);
 }
 
@@ -392,6 +417,7 @@ function releaseAllVoices() {
   for (const pad of pads) {
     pad.classList.remove("active");
     pad.style.setProperty("--hue", String(baseHue.get(pad) ?? 310));
+    resetStretch(pad);
   }
   updatePitchDisplay();
 }

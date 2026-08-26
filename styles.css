@@ -113,6 +113,10 @@ h1 {
 .pad {
   --glow: 0.35;
   --hue: 310;
+  --lift: 0rem;
+  --pad-scale: 1;
+  --stretch-x: 1;
+  --stretch-y: 1;
   appearance: none;
   border: none;
   border-radius: 50%;
@@ -134,7 +138,7 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-  transform: translateY(0) scale(1);
+  transform: translateY(var(--lift)) scale(var(--pad-scale)) scaleX(var(--stretch-x)) scaleY(var(--stretch-y));
   transition:
     transform 0.15s ease-out,
     box-shadow 0.15s ease-out,
@@ -170,7 +174,8 @@ h1 {
 
 .pad.active {
   --glow: 1;
-  transform: translateY(-0.4rem) scale(1.12);
+  --lift: -0.4rem;
+  --pad-scale: 1.12;
   animation-play-state: paused;
 }
 
