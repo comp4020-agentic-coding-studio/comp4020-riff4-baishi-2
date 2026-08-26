@@ -20,6 +20,27 @@ let brightness = 0.5; // 0 = dark, 1 = bright — also drives the CSS backdrop.
 type Voice = { oscillator: OscillatorNode; gain: GainNode };
 const voices = new Map<string, Voice>();
 
+// Each pad's resting colour, keyed to its own pitch — read once from the
+// --hue set in the markup rather than hard-coded again here.
+const baseHue = new Map<HTMLElement, number>();
+for (const pad of pads) {
+  baseHue.set(pad, Number.parseFloat(getComputedStyle(pad).getPropertyValue("--hue")) || 310);
+}
+
+const HUE_BEND_RANGE = 40; // degrees of hue swing across the full up/down travel
+
+// A held pad's colour bends away from its resting hue as you move up or
+// down, the same gesture that already brightens or darkens the sound —
+// so a note playing sounds and looks like it's being bent at once.
+function applyHueForBrightness() {
+  const offset = (brightness - 0.5) * HUE_BEND_RANGE;
+  for (const pad of pads) {
+    if (!pad.classList.contains("active")) continue;
+    const base = baseHue.get(pad) ?? 310;
+    pad.style.setProperty("--hue", String(base + offset));
+  }
+}
+
 function markPlayed() {
   hint?.classList.add("played");
 }
@@ -31,6 +52,7 @@ function setBrightness(value: number) {
     const cutoff = MIN_CUTOFF * (MAX_CUTOFF / MIN_CUTOFF) ** brightness;
     masterFilter.frequency.setTargetAtTime(cutoff, audioContext.currentTime, 0.05);
   }
+  applyHueForBrightness();
 }
 
 function ensureAudio(): AudioContext {
@@ -84,6 +106,7 @@ function noteOn(voiceId: string, frequency: number, pad: HTMLElement | null) {
 
   voices.set(voiceId, { oscillator, gain });
   pad?.classList.add("active");
+  applyHueForBrightness();
   markPlayed();
   updatePitchDisplay();
 }
@@ -91,6 +114,7 @@ function noteOn(voiceId: string, frequency: number, pad: HTMLElement | null) {
 function noteOff(voiceId: string, pad: HTMLElement | null) {
   const voice = voices.get(voiceId);
   pad?.classList.remove("active");
+  if (pad) pad.style.setProperty("--hue", String(baseHue.get(pad) ?? 310));
   updatePitchDisplay();
   if (!voice || !audioContext) return;
 
@@ -342,7 +366,10 @@ function releaseAllVoices() {
     noteOff(voiceId, null);
   }
   pointerPads.clear();
-  for (const pad of pads) pad.classList.remove("active");
+  for (const pad of pads) {
+    pad.classList.remove("active");
+    pad.style.setProperty("--hue", String(baseHue.get(pad) ?? 310));
+  }
   updatePitchDisplay();
 }
 

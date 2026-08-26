@@ -104,8 +104,15 @@ h1 {
   flex-wrap: wrap;
 }
 
+@property --hue {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 310;
+}
+
 .pad {
   --glow: 0.35;
+  --hue: 310;
   appearance: none;
   border: none;
   border-radius: 50%;
@@ -115,11 +122,11 @@ h1 {
   height: clamp(3rem, 10cqw, 6rem);
   background: radial-gradient(
     circle at 35% 30%,
-    hsl(calc(var(--bg-hue) + 60) 90% calc(55% + var(--glow) * 30%)),
-    hsl(calc(var(--bg-hue) + 60) 70% 30%)
+    hsl(var(--hue) 90% calc(55% + var(--glow) * 30%)),
+    hsl(var(--hue) 70% 30%)
   );
   box-shadow:
-    0 0 calc(var(--glow) * 2.5rem) hsl(calc(var(--bg-hue) + 60) 90% 65% / var(--glow)),
+    0 0 calc(var(--glow) * 2.5rem) hsl(var(--hue) 90% 65% / var(--glow)),
     inset 0 0 0.4rem rgb(255 255 255 / 0.3);
   color: #1a1330;
   font-weight: 700;
@@ -131,7 +138,8 @@ h1 {
   transition:
     transform 0.15s ease-out,
     box-shadow 0.15s ease-out,
-    background 0.15s ease-out;
+    background 0.15s ease-out,
+    --hue 0.2s linear;
   animation: idle 3.2s ease-in-out infinite;
 }
 
@@ -174,10 +182,10 @@ h1 {
 @keyframes idle {
   0%,
   100% {
-    box-shadow: 0 0 calc(var(--glow) * 2.5rem) hsl(calc(var(--bg-hue) + 60) 90% 65% / var(--glow));
+    box-shadow: 0 0 calc(var(--glow) * 2.5rem) hsl(var(--hue) 90% 65% / var(--glow));
   }
   50% {
-    box-shadow: 0 0 calc((var(--glow) + 0.15) * 2.5rem) hsl(calc(var(--bg-hue) + 60) 90% 65% / calc(var(--glow) + 0.15));
+    box-shadow: 0 0 calc((var(--glow) + 0.15) * 2.5rem) hsl(var(--hue) 90% 65% / calc(var(--glow) + 0.15));
   }
 }
 
