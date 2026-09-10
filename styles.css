@@ -11,6 +11,10 @@ body {
   margin: 0;
   padding: clamp(1rem, 4vw, 2rem);
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   font-family: system-ui, sans-serif;
   line-height: 1.6;
   color: #f2f0ff;
@@ -54,6 +58,41 @@ h1 {
   font-size: 0.95rem;
 }
 
+.pitch-display {
+  min-height: 1.6em;
+  margin: 0 0 1rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.1rem;
+  letter-spacing: 0.03em;
+  opacity: 0.9;
+}
+
+.autoplay {
+  appearance: none;
+  border: 1px solid rgb(255 255 255 / 0.25);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.08);
+  color: #f2f0ff;
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.5rem 1.5rem;
+  cursor: pointer;
+  transition:
+    background 0.15s ease-out,
+    border-color 0.15s ease-out;
+}
+
+.autoplay:hover,
+.autoplay:focus-visible {
+  background: rgb(255 255 255 / 0.16);
+  border-color: rgb(255 255 255 / 0.4);
+}
+
+.autoplay[aria-pressed="true"] {
+  background: hsl(calc(var(--bg-hue) + 60) 90% 55% / 0.35);
+  border-color: hsl(calc(var(--bg-hue) + 60) 90% 65%);
+}
+
 .instrument {
   container-type: inline-size;
   touch-action: none;
@@ -65,22 +104,31 @@ h1 {
   flex-wrap: wrap;
 }
 
+@property --hue {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 310;
+}
+
 .pad {
   --glow: 0.35;
+  --hue: 310;
+  --lift: 0rem;
+  --pad-scale: 1;
   appearance: none;
   border: none;
   border-radius: 50%;
   flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
-  width: clamp(2.25rem, 8cqw, 4.5rem);
-  height: clamp(2.25rem, 8cqw, 4.5rem);
+  width: clamp(3rem, 10cqw, 6rem);
+  height: clamp(3rem, 10cqw, 6rem);
   background: radial-gradient(
     circle at 35% 30%,
-    hsl(calc(var(--bg-hue) + 60) 90% calc(55% + var(--glow) * 30%)),
-    hsl(calc(var(--bg-hue) + 60) 70% 30%)
+    hsl(var(--hue) 90% calc(55% + var(--glow) * 30%)),
+    hsl(var(--hue) 70% 30%)
   );
   box-shadow:
-    0 0 calc(var(--glow) * 2.5rem) hsl(calc(var(--bg-hue) + 60) 90% 65% / var(--glow)),
+    0 0 calc(var(--glow) * 2.5rem) hsl(var(--hue) 90% 65% / var(--glow)),
     inset 0 0 0.4rem rgb(255 255 255 / 0.3);
   color: #1a1330;
   font-weight: 700;
@@ -88,11 +136,13 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-  transform: translateY(0) scale(1);
+  transform: translateY(var(--lift)) scale(var(--pad-scale));
   transition:
     transform 0.15s ease-out,
     box-shadow 0.15s ease-out,
-    background 0.15s ease-out;
+    background 0.15s ease-out,
+    border-radius 0.15s ease-out,
+    --hue 0.2s linear;
   animation: idle 3.2s ease-in-out infinite;
 }
 
@@ -123,7 +173,8 @@ h1 {
 
 .pad.active {
   --glow: 1;
-  transform: translateY(-0.4rem) scale(1.12);
+  --lift: -0.4rem;
+  --pad-scale: 1.12;
   animation-play-state: paused;
 }
 
@@ -135,10 +186,10 @@ h1 {
 @keyframes idle {
   0%,
   100% {
-    box-shadow: 0 0 calc(var(--glow) * 2.5rem) hsl(calc(var(--bg-hue) + 60) 90% 65% / var(--glow));
+    box-shadow: 0 0 calc(var(--glow) * 2.5rem) hsl(var(--hue) 90% 65% / var(--glow));
   }
   50% {
-    box-shadow: 0 0 calc((var(--glow) + 0.15) * 2.5rem) hsl(calc(var(--bg-hue) + 60) 90% 65% / calc(var(--glow) + 0.15));
+    box-shadow: 0 0 calc((var(--glow) + 0.15) * 2.5rem) hsl(var(--hue) 90% 65% / calc(var(--glow) + 0.15));
   }
 }
 

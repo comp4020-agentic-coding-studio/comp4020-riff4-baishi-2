@@ -1,7 +1,8 @@
 // Drift: an eight-pad pentatonic instrument. Every note lives in the same
 // scale, so any combination of pads — one finger or five — sounds
 // consonant. Vertical position sweeps a shared filter and delay, so the
-// same notes feel brighter or darker depending on where you touch.
+// same notes feel brighter or darker depending on where you touch — and
+// bends every sounding pitch slightly sharp or flat along with it.
 
 const MIN_CUTOFF = 350;
 const MAX_CUTOFF = 6000;
@@ -10,6 +11,7 @@ const RELEASE = 0.35;
 
 const instrument = document.querySelector<HTMLElement>("#instrument");
 const hint = document.querySelector<HTMLElement>("#hint");
+const pitchDisplay = document.querySelector<HTMLElement>("#pitch-display");
 const pads = Array.from(document.querySelectorAll<HTMLButtonElement>(".pad"));
 
 let audioContext: AudioContext | null = null;
@@ -18,6 +20,44 @@ let brightness = 0.5; // 0 = dark, 1 = bright — also drives the CSS backdrop.
 
 type Voice = { oscillator: OscillatorNode; gain: GainNode };
 const voices = new Map<string, Voice>();
+
+// Each pad's resting colour, keyed to its own pitch — read once from the
+// --hue set in the markup rather than hard-coded again here.
+const baseHue = new Map<HTMLElement, number>();
+for (const pad of pads) {
+  baseHue.set(pad, Number.parseFloat(getComputedStyle(pad).getPropertyValue("--hue")) || 310);
+}
+
+const HUE_BEND_RANGE = 40; // degrees of hue swing across the full up/down travel
+const PITCH_BEND_CENTS_RANGE = 200; // a full tone of bend across the full up/down travel
+
+function currentBendCents(): number {
+  return (brightness - 0.5) * PITCH_BEND_CENTS_RANGE;
+}
+
+// Every currently sounding oscillator bends by the same amount, live, as you
+// move up or down — the same gesture that already brightens the filter and
+// bends each pad's hue, so pitch, timbre and colour all drift together.
+function applyPitchBendForBrightness() {
+  if (!audioContext) return;
+  const cents = currentBendCents();
+  const now = audioContext.currentTime;
+  for (const { oscillator } of voices.values()) {
+    oscillator.detune.setTargetAtTime(cents, now, 0.05);
+  }
+}
+
+// A held pad's colour bends away from its resting hue as you move up or
+// down, the same gesture that already brightens or darkens the sound —
+// so a note playing sounds and looks like it's being bent at once.
+function applyHueForBrightness() {
+  const offset = (brightness - 0.5) * HUE_BEND_RANGE;
+  for (const pad of pads) {
+    if (!pad.classList.contains("active")) continue;
+    const base = baseHue.get(pad) ?? 310;
+    pad.style.setProperty("--hue", String(base + offset));
+  }
+}
 
 function markPlayed() {
   hint?.classList.add("played");
@@ -30,6 +70,9 @@ function setBrightness(value: number) {
     const cutoff = MIN_CUTOFF * (MAX_CUTOFF / MIN_CUTOFF) ** brightness;
     masterFilter.frequency.setTargetAtTime(cutoff, audioContext.currentTime, 0.05);
   }
+  applyHueForBrightness();
+  applyPitchBendForBrightness();
+  updatePitchDisplay();
 }
 
 function ensureAudio(): AudioContext {
@@ -72,6 +115,7 @@ function noteOn(voiceId: string, frequency: number, pad: HTMLElement | null, fro
   const oscillator = context.createOscillator();
   oscillator.type = "triangle";
   oscillator.frequency.value = frequency;
+  oscillator.detune.setValueAtTime(currentBendCents(), context.currentTime);
 
   const gain = context.createGain();
   gain.gain.setValueAtTime(0, context.currentTime);
@@ -89,6 +133,8 @@ function noteOn(voiceId: string, frequency: number, pad: HTMLElement | null, fro
     if (loopState === "recording") recordNoteOn(voiceId, frequency, pad);
     markPlayed();
   }
+  applyHueForBrightness();
+  updatePitchDisplay();
 }
 
 function noteOff(voiceId: string, pad: HTMLElement | null, fromLoop = false) {
@@ -98,7 +144,9 @@ function noteOff(voiceId: string, pad: HTMLElement | null, fromLoop = false) {
   } else {
     padRefs(pad, "active").release();
     if (loopState === "recording") recordNoteOff(voiceId);
+    if (pad) pad.style.setProperty("--hue", String(baseHue.get(pad) ?? 310));
   }
+  updatePitchDisplay();
   if (!voice || !audioContext) return;
 
   const { oscillator, gain } = voice;
@@ -140,6 +188,21 @@ function frequencyOf(pad: HTMLElement): number {
   return Number(pad.dataset.freq);
 }
 
+// Shows every pitch currently sounding, low to high — a sighted readout of
+// what's already audible, including the live bend from the brightness
+// gesture, not a new source of truth.
+function updatePitchDisplay() {
+  if (!pitchDisplay) return;
+  const bendFactor = 2 ** (currentBendCents() / 1200);
+  const sounding = pads
+    .filter((pad) => pad.classList.contains("active"))
+    .map((pad) => ({ note: pad.dataset.note ?? "?", freq: frequencyOf(pad) * bendFactor }))
+    .sort((a, b) => a.freq - b.freq);
+
+  pitchDisplay.textContent =
+    sounding.length === 0 ? "—" : sounding.map(({ note, freq }) => `${note} · ${freq.toFixed(1)} Hz`).join("   ");
+}
+
 function updateBrightnessFromClientY(clientY: number) {
   const ratio = 1 - clientY / window.innerHeight;
   setBrightness(ratio);
@@ -148,7 +211,26 @@ function updateBrightnessFromClientY(clientY: number) {
 // Pointer events unify mouse and touch, and each pointerId is its own
 // voice, so a mouse drag glides between pads (glissando) while several
 // simultaneous touches play a chord.
-const pointerPads = new Map<number, HTMLElement>();
+type PointerDrag = { pad: HTMLElement; startX: number; startY: number };
+const pointerPads = new Map<number, PointerDrag>();
+
+const STRETCH_RANGE = 90; // px of drag needed to reach full lean
+const STRETCH_MAX = 22; // percentage points the edge leans, at full drag
+
+// A pad leans toward wherever it's being dragged — only its edges reshape
+// (via border-radius), the overall size stays put — smoothed by the same
+// transition that already handles its lift and glow.
+function applyStretch(pad: HTMLElement, dx: number, dy: number) {
+  const leanX = (Math.max(-1, Math.min(1, dx / STRETCH_RANGE)) * STRETCH_MAX).toFixed(1);
+  const leanY = (Math.max(-1, Math.min(1, dy / STRETCH_RANGE)) * STRETCH_MAX).toFixed(1);
+  pad.style.borderRadius =
+    `calc(50% - ${leanX}%) calc(50% + ${leanX}%) calc(50% + ${leanX}%) calc(50% - ${leanX}%) / ` +
+    `calc(50% - ${leanY}%) calc(50% - ${leanY}%) calc(50% + ${leanY}%) calc(50% + ${leanY}%)`;
+}
+
+function resetStretch(pad: HTMLElement) {
+  pad.style.borderRadius = "";
+}
 
 function padUnderPoint(x: number, y: number): HTMLElement | null {
   const el = document.elementFromPoint(x, y);
@@ -159,7 +241,7 @@ instrument?.addEventListener("pointerdown", (event) => {
   const pad = (event.target as HTMLElement).closest<HTMLElement>(".pad");
   if (!pad) return;
   event.preventDefault();
-  pointerPads.set(event.pointerId, pad);
+  pointerPads.set(event.pointerId, { pad, startX: event.clientX, startY: event.clientY });
   noteOn(`pointer-${event.pointerId}`, frequencyOf(pad), pad);
   updateBrightnessFromClientY(event.clientY);
 });
@@ -167,21 +249,27 @@ instrument?.addEventListener("pointerdown", (event) => {
 document.addEventListener("pointermove", (event) => {
   updateBrightnessFromClientY(event.clientY);
 
-  const currentPad = pointerPads.get(event.pointerId);
-  if (!currentPad) return;
+  const drag = pointerPads.get(event.pointerId);
+  if (!drag) return;
 
   const pad = padUnderPoint(event.clientX, event.clientY);
-  if (pad && pad !== currentPad) {
-    noteOff(`pointer-${event.pointerId}`, currentPad);
-    pointerPads.set(event.pointerId, pad);
+  if (pad && pad !== drag.pad) {
+    noteOff(`pointer-${event.pointerId}`, drag.pad);
+    resetStretch(drag.pad);
+    drag.pad = pad;
+    drag.startX = event.clientX;
+    drag.startY = event.clientY;
     noteOn(`pointer-${event.pointerId}`, frequencyOf(pad), pad);
   }
+
+  applyStretch(drag.pad, event.clientX - drag.startX, event.clientY - drag.startY);
 });
 
 function releasePointer(event: PointerEvent) {
-  const pad = pointerPads.get(event.pointerId);
-  if (!pad) return;
-  noteOff(`pointer-${event.pointerId}`, pad);
+  const drag = pointerPads.get(event.pointerId);
+  if (!drag) return;
+  noteOff(`pointer-${event.pointerId}`, drag.pad);
+  resetStretch(drag.pad);
   pointerPads.delete(event.pointerId);
 }
 
@@ -240,6 +328,84 @@ for (const pad of pads) {
   if (key) keyPads.set(key, pad);
 }
 
+// A melody that only ever touches the eight pads, so it can never play a
+// note the instrument itself couldn't — the pentatonic scale means any order
+// of these keys stays consonant.
+const MELODY: { key: string; duration: number }[] = [
+  { key: "a", duration: 320 },
+  { key: "d", duration: 320 },
+  { key: "g", duration: 320 },
+  { key: "j", duration: 480 },
+  { key: "g", duration: 320 },
+  { key: "d", duration: 320 },
+  { key: "a", duration: 480 },
+  { key: "f", duration: 320 },
+  { key: "h", duration: 320 },
+  { key: "k", duration: 480 },
+  { key: "h", duration: 320 },
+  { key: "f", duration: 320 },
+  { key: "d", duration: 320 },
+  { key: "g", duration: 320 },
+  { key: "a", duration: 640 },
+];
+
+const autoplayButton = document.querySelector<HTMLButtonElement>("#autoplay");
+let melodyPlaying = false;
+let melodyTimeout: number | null = null;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    melodyTimeout = window.setTimeout(resolve, ms);
+  });
+}
+
+function setAutoplayLabel(playing: boolean) {
+  if (!autoplayButton) return;
+  autoplayButton.setAttribute("aria-pressed", String(playing));
+  autoplayButton.textContent = playing ? "Stop melody" : "Play melody";
+}
+
+function stopMelody() {
+  melodyPlaying = false;
+  if (melodyTimeout !== null) {
+    window.clearTimeout(melodyTimeout);
+    melodyTimeout = null;
+  }
+  for (const voiceId of Array.from(voices.keys())) {
+    if (voiceId.startsWith("melody-")) noteOff(voiceId, keyPads.get(voiceId.slice(7)) ?? null);
+  }
+  setAutoplayLabel(false);
+}
+
+async function playMelody() {
+  melodyPlaying = true;
+  setAutoplayLabel(true);
+  ensureAudio();
+
+  for (const { key, duration } of MELODY) {
+    if (!melodyPlaying) return;
+    const pad = keyPads.get(key);
+    if (!pad) continue;
+    const voiceId = `melody-${key}`;
+    noteOn(voiceId, frequencyOf(pad), pad);
+    await sleep(duration * 0.85);
+    if (!melodyPlaying) return;
+    noteOff(voiceId, pad);
+    await sleep(duration * 0.15);
+  }
+
+  melodyPlaying = false;
+  setAutoplayLabel(false);
+}
+
+autoplayButton?.addEventListener("click", () => {
+  if (melodyPlaying) {
+    stopMelody();
+  } else {
+    void playMelody();
+  }
+});
+
 const BRIGHTNESS_STEP = 0.08;
 
 document.addEventListener("keydown", (event) => {
@@ -274,12 +440,24 @@ document.addEventListener("keyup", (event) => {
 // forever, since keyup/pointerup only fire on the page that's still focused.
 // Releasing every voice on blur turns that into an ordinary note-off.
 function releaseAllVoices() {
+  melodyPlaying = false;
+  if (melodyTimeout !== null) {
+    window.clearTimeout(melodyTimeout);
+    melodyTimeout = null;
+  }
+  setAutoplayLabel(false);
   for (const voiceId of Array.from(voices.keys())) {
     noteOff(voiceId, null, voiceId.startsWith("loop-"));
   }
   pointerPads.clear();
-  for (const pad of pads) pad.classList.remove("active", "loop-echo");
+  for (const pad of pads) {
+    pad.classList.remove("active");
+    pad.classList.remove("loop-echo");
+    pad.style.setProperty("--hue", String(baseHue.get(pad) ?? 310));
+    resetStretch(pad);
+  }
   padClassRefs.clear();
+  updatePitchDisplay();
 }
 
 window.addEventListener("blur", releaseAllVoices);
