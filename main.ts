@@ -106,7 +106,7 @@ function ensureAudio(): AudioContext {
   return context;
 }
 
-function noteOn(voiceId: string, frequency: number, pad: HTMLElement | null) {
+function noteOn(voiceId: string, frequency: number, pad: HTMLElement | null, fromLoop = false) {
   const context = ensureAudio();
   if (context.state === "suspended") void context.resume();
   if (!masterFilter) return;
@@ -126,16 +126,26 @@ function noteOn(voiceId: string, frequency: number, pad: HTMLElement | null) {
   oscillator.start();
 
   voices.set(voiceId, { oscillator, gain });
-  pad?.classList.add("active");
+  if (fromLoop) {
+    padRefs(pad, "loop-echo").add();
+  } else {
+    padRefs(pad, "active").add();
+    if (loopState === "recording") recordNoteOn(voiceId, frequency, pad);
+    markPlayed();
+  }
   applyHueForBrightness();
-  markPlayed();
   updatePitchDisplay();
 }
 
-function noteOff(voiceId: string, pad: HTMLElement | null) {
+function noteOff(voiceId: string, pad: HTMLElement | null, fromLoop = false) {
   const voice = voices.get(voiceId);
-  pad?.classList.remove("active");
-  if (pad) pad.style.setProperty("--hue", String(baseHue.get(pad) ?? 310));
+  if (fromLoop) {
+    padRefs(pad, "loop-echo").release();
+  } else {
+    padRefs(pad, "active").release();
+    if (loopState === "recording") recordNoteOff(voiceId);
+    if (pad) pad.style.setProperty("--hue", String(baseHue.get(pad) ?? 310));
+  }
   updatePitchDisplay();
   if (!voice || !audioContext) return;
 
@@ -146,6 +156,32 @@ function noteOff(voiceId: string, pad: HTMLElement | null) {
   gain.gain.linearRampToValueAtTime(0, now + RELEASE);
   oscillator.stop(now + RELEASE + 0.05);
   voices.delete(voiceId);
+}
+
+// Live play and the looped echo can both light the same pad at once, so each
+// class is refcounted independently — releasing one held note must not blank
+// out a still-sounding class-mate on the same pad.
+const padClassRefs = new Map<string, number>();
+
+function padRefs(pad: HTMLElement | null, className: string) {
+  const key = pad ? `${className}:${(pads as HTMLElement[]).indexOf(pad)}` : "";
+  return {
+    add() {
+      if (!pad) return;
+      padClassRefs.set(key, (padClassRefs.get(key) ?? 0) + 1);
+      pad.classList.add(className);
+    },
+    release() {
+      if (!pad) return;
+      const next = (padClassRefs.get(key) ?? 1) - 1;
+      if (next <= 0) {
+        padClassRefs.delete(key);
+        pad.classList.remove(className);
+      } else {
+        padClassRefs.set(key, next);
+      }
+    },
+  };
 }
 
 function frequencyOf(pad: HTMLElement): number {
@@ -411,20 +447,122 @@ function releaseAllVoices() {
   }
   setAutoplayLabel(false);
   for (const voiceId of Array.from(voices.keys())) {
-    noteOff(voiceId, null);
+    noteOff(voiceId, null, voiceId.startsWith("loop-"));
   }
   pointerPads.clear();
   for (const pad of pads) {
     pad.classList.remove("active");
+    pad.classList.remove("loop-echo");
     pad.style.setProperty("--hue", String(baseHue.get(pad) ?? 310));
     resetStretch(pad);
   }
+  padClassRefs.clear();
   updatePitchDisplay();
 }
 
 window.addEventListener("blur", releaseAllVoices);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) releaseAllVoices();
+});
+
+// A one-layer looper: record a phrase, then it plays back on repeat while you
+// play live on top — the thing a single-voice-per-touch instrument implies
+// (layering a texture) but never itself offers.
+type Press = { pad: HTMLElement; freq: number; onAt: number; offAt: number };
+
+const MIN_LOOP_MS = 400;
+let loopState: "idle" | "recording" | "playing" = "idle";
+let recordedPresses: Press[] = [];
+const openPresses = new Map<string, { pad: HTMLElement; freq: number; onAt: number }>();
+let loopStartTime = 0;
+let loopDurationMs = 0;
+let loopTimers: number[] = [];
+
+const loopButton = document.querySelector<HTMLButtonElement>("#loop-button");
+const loopLabel = document.querySelector<HTMLElement>("#loop-label");
+const loopStatus = document.querySelector<HTMLElement>("#loop-status");
+
+function recordNoteOn(voiceId: string, freq: number, pad: HTMLElement | null) {
+  if (!pad) return;
+  openPresses.set(voiceId, { pad, freq, onAt: performance.now() - loopStartTime });
+}
+
+function recordNoteOff(voiceId: string) {
+  const open = openPresses.get(voiceId);
+  if (!open) return;
+  openPresses.delete(voiceId);
+  recordedPresses.push({ ...open, offAt: performance.now() - loopStartTime });
+}
+
+function clearLoopTimers() {
+  for (const timer of loopTimers) window.clearTimeout(timer);
+  loopTimers = [];
+}
+
+function scheduleLoopCycle() {
+  recordedPresses.forEach((press, index) => {
+    const voiceId = `loop-${index}`;
+    loopTimers.push(
+      window.setTimeout(() => noteOn(voiceId, press.freq, press.pad, true), press.onAt),
+      window.setTimeout(
+        () => noteOff(voiceId, press.pad, true),
+        Math.max(press.offAt, press.onAt + 10),
+      ),
+    );
+  });
+  loopTimers.push(window.setTimeout(scheduleLoopCycle, loopDurationMs));
+}
+
+function stopLoopPlayback() {
+  clearLoopTimers();
+  recordedPresses.forEach((press, index) => noteOff(`loop-${index}`, press.pad, true));
+}
+
+function setLoopUI(state: typeof loopState) {
+  if (!loopButton || !loopLabel || !loopStatus) return;
+  loopButton.dataset.state = state;
+  loopButton.setAttribute("aria-pressed", String(state !== "idle"));
+  if (state === "idle") {
+    loopLabel.textContent = "Record a loop";
+    loopStatus.textContent = "Loop cleared.";
+  } else if (state === "recording") {
+    loopLabel.textContent = "Stop recording";
+    loopStatus.textContent = "Recording a loop — play some notes.";
+  } else {
+    loopLabel.textContent = "Clear loop";
+    loopStatus.textContent = "Loop playing back. Play along, or clear it.";
+  }
+}
+
+function cycleLoop() {
+  if (loopState === "idle") {
+    ensureAudio();
+    loopState = "recording";
+    recordedPresses = [];
+    openPresses.clear();
+    loopStartTime = performance.now();
+  } else if (loopState === "recording") {
+    loopDurationMs = Math.max(MIN_LOOP_MS, performance.now() - loopStartTime);
+    openPresses.clear();
+    if (recordedPresses.length === 0) {
+      loopState = "idle";
+    } else {
+      loopState = "playing";
+      scheduleLoopCycle();
+    }
+  } else {
+    stopLoopPlayback();
+    loopState = "idle";
+  }
+  setLoopUI(loopState);
+}
+
+loopButton?.addEventListener("click", cycleLoop);
+
+document.addEventListener("keydown", (event) => {
+  if (event.repeat || event.key.toLowerCase() !== "l") return;
+  event.preventDefault();
+  cycleLoop();
 });
 
 setBrightness(brightness);
